@@ -4,7 +4,11 @@
 
 > *Solving Maxwell's curl equations on a staggered Yee grid, with PML absorbing boundaries, material support, and animated field visualization.*
 
-![Point source radiating in free space](assets/ex01_animation.gif)
+<p align="center">
+  <img src="assets/ex01_animation.gif" width="480" alt="Point source radiating in free space"/>
+  <br>
+  <em>3 GHz point source radiating circular wavefronts in free space. PML boundaries absorb outgoing waves cleanly.</em>
+</p>
 
 ---
 
