@@ -4,6 +4,8 @@
 
 > *Solving Maxwell's curl equations on a staggered Yee grid, with PML absorbing boundaries, material support, and animated field visualization.*
 
+![Point source radiating in free space](assets/ex01_animation.gif)
+
 ---
 
 ## What is FDTD?

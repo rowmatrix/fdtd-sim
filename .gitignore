@@ -52,6 +52,7 @@ htmlcov/
 # -------------------------------------------------------------
 assets/*.png
 assets/*.gif
+!assets/ex01_animation.gif
 assets/*.mp4
 assets/*.npy
 assets/*.npz
