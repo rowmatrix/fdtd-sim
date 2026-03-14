@@ -1,6 +1,6 @@
 # fdtd-sim
 
-**2D Finite-Difference Time-Domain (FDTD) electromagnetic field solver — built from scratch in Python.**
+**2D Finite-Difference Time-Domain (FDTD) electromagnetic field solver — built in Python.**
 
 > *Solving Maxwell's curl equations on a staggered Yee grid, with PML absorbing boundaries, material support, and animated field visualization.*
 
@@ -47,14 +47,14 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```python
-from src.fdtd import GridConfig, PointSource, FDTDSolver
-from src.visualize import plot_field, animate_field
+from fdtd import GridConfig, PointSource, FDTDSolver
+from visualize import plot_field
 
-# Define the grid: 150x150 mm, 1 mm cells, 600 time steps
-cfg = GridConfig(nx=150, ny=150, dx=1e-3, dy=1e-3, nt=600)
+# Define the grid: 200x200 mm, 1 mm cells, 600 time steps
+cfg = GridConfig(nx=200, ny=200, dx=1e-3, dy=1e-3, nt=800, pml_layers=25)
 
 # 5 GHz point source at grid center
-src = PointSource(ix=75, iy=75, frequency=5e9)
+src = PointSource(ix=100, iy=100, frequency=3e9)
 
 # Run
 solver = FDTDSolver(cfg, sources=[src], record_every=5)
@@ -63,8 +63,7 @@ solver.run()
 # Plot final snapshot
 plot_field(solver)
 
-# Save animation
-animate_field(solver, save_path="wave.gif")
+# Plot final snapshot (run with PYTHONPATH=src from repo root)
 ```
 
 ---

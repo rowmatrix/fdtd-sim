@@ -1,22 +1,15 @@
 """
 test_fdtd.py
 ------------
-Unit tests for the core FDTD solver.
-
-Tests cover:
-    - Courant condition (stability)
-    - Field initialization (all zeros)
-    - Source injection (Ez at source location changes)
-    - Energy conservation in lossless free space (approximate)
-    - PML absorption (energy decreases after source stops)
-    - Material assignment
+Unit tests for the UPML split-field FDTD solver.
 
 Run:
     pytest tests/test_fdtd.py -v
 """
 
 import sys
-sys.path.insert(0, "../src")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
 import numpy as np
 import pytest
@@ -32,36 +25,36 @@ from fdtd import (
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 def small_grid():
-    return GridConfig(nx=60, ny=60, dx=1e-3, dy=1e-3, nt=100, pml_layers=10)
+    return GridConfig(nx=60, ny=60, dx=1e-3, dy=1e-3,
+                      nt=100, pml_layers=10)
 
 
 @pytest.fixture
 def free_space_solver(small_grid):
-    src = PointSource(ix=30, iy=30, frequency=5e9)
+    src = PointSource(ix=30, iy=30, frequency=3e9)
     return FDTDSolver(small_grid, sources=[src], record_every=10)
 
 
 # --------------------------------------------------------------------------- #
-#  GridConfig tests
+#  GridConfig
 # --------------------------------------------------------------------------- #
 class TestGridConfig:
     def test_courant_condition(self):
-        """dt must satisfy Courant condition: c*dt <= dx/sqrt(2)."""
+        """dt must satisfy the 2D Courant condition."""
         cfg = GridConfig(nx=100, ny=100, dx=1e-3, dy=1e-3)
-        assert C0 * cfg.dt <= cfg.dx / np.sqrt(2) * 1.01  # 1% tolerance
+        assert C0 * cfg.dt <= cfg.dx / np.sqrt(2) * 1.01
+
+    def test_dt_positive(self):
+        assert GridConfig().dt > 0
 
     def test_dimensions(self):
         cfg = GridConfig(nx=50, ny=80, dx=2e-3, dy=2e-3)
         assert abs(cfg.Lx - 0.1) < 1e-10
         assert abs(cfg.Ly - 0.16) < 1e-10
 
-    def test_dt_positive(self):
-        cfg = GridConfig()
-        assert cfg.dt > 0
-
 
 # --------------------------------------------------------------------------- #
-#  MaterialMap tests
+#  MaterialMap
 # --------------------------------------------------------------------------- #
 class TestMaterialMap:
     def test_default_free_space(self):
@@ -74,68 +67,80 @@ class TestMaterialMap:
         mat = MaterialMap(50, 50)
         mat.add_rectangle(10, 10, 30, 30, eps_r=4.0)
         assert mat.eps_r[20, 20] == 4.0
-        assert mat.eps_r[5,  5 ] == 1.0   # outside region
+        assert mat.eps_r[5,   5] == 1.0
 
     def test_add_circle(self):
         mat = MaterialMap(100, 100)
         mat.add_circle(cx=50, cy=50, radius=10, eps_r=9.0)
-        assert mat.eps_r[50, 50] == 9.0   # center
-        assert mat.eps_r[0,  0 ] == 1.0   # outside
+        assert mat.eps_r[50, 50] == 9.0
+        assert mat.eps_r[0,   0] == 1.0
 
 
 # --------------------------------------------------------------------------- #
-#  Source waveform tests
+#  Source waveforms
 # --------------------------------------------------------------------------- #
 class TestSources:
-    def test_point_source_zero_at_t0(self):
-        """Source waveform should be ~0 at t=0 (before ramp-up)."""
+    def test_point_source_near_zero_at_t0(self):
         src = PointSource(ix=0, iy=0, frequency=1e9)
         assert abs(src.waveform(0.0)) < 0.01
 
-    def test_point_source_nonzero_later(self):
+    def test_point_source_active_after_delay(self):
         src = PointSource(ix=0, iy=0, frequency=1e9)
         T = 1.0 / src.frequency
-        # After several cycles the source should be active
-        val = max(abs(src.waveform(t)) for t in np.linspace(5*T, 10*T, 100))
-        assert val > 0.5
+        peak = max(abs(src.waveform(t)) for t in np.linspace(5*T, 10*T, 200))
+        assert peak > 0.8
 
     def test_gaussian_pulse_peak(self):
-        t0 = 1e-9
-        sp = 0.2e-9
+        t0, sp = 1e-9, 0.2e-9
         src = GaussianPulseSource(ix=0, iy=0, t0=t0, spread=sp)
-        assert abs(src.waveform(t0) - 1.0) < 1e-6
+        assert abs(src.waveform(t0) - 1.0) < 1e-9
+
+    def test_gaussian_pulse_decays(self):
+        t0, sp = 1e-9, 0.2e-9
+        src = GaussianPulseSource(ix=0, iy=0, t0=t0, spread=sp)
+        assert src.waveform(t0 + 5 * sp) < 0.01
 
 
 # --------------------------------------------------------------------------- #
-#  Solver initialization tests
+#  Solver initialisation
 # --------------------------------------------------------------------------- #
 class TestSolverInit:
-    def test_fields_zero_at_start(self, free_space_solver):
+    def test_split_fields_zero_at_start(self, free_space_solver):
         s = free_space_solver
-        assert np.all(s.Ez == 0)
-        assert np.all(s.Hx == 0)
-        assert np.all(s.Hy == 0)
+        assert np.all(s.Ezx == 0)
+        assert np.all(s.Ezy == 0)
+        assert np.all(s.Hx  == 0)
+        assert np.all(s.Hy  == 0)
 
-    def test_snapshot_list_empty_at_start(self, free_space_solver):
+    def test_ez_property_zero_at_start(self, free_space_solver):
+        """Ez = Ezx + Ezy should be zero before any stepping."""
+        assert np.all(free_space_solver.Ez == 0)
+
+    def test_snapshots_empty_at_start(self, free_space_solver):
         assert len(free_space_solver.snapshots) == 0
 
+    def test_ca_coefficient_range(self, small_grid):
+        """_cax and _cay must be in (-1, 1] for numerical stability."""
+        s = FDTDSolver(small_grid)
+        assert np.all(s._cax <= 1.0)
+        assert np.all(s._cay <= 1.0)
+        assert np.all(s._cax > -1.0)
+        assert np.all(s._cay > -1.0)
+
 
 # --------------------------------------------------------------------------- #
-#  Solver run tests
+#  Solver stepping and running
 # --------------------------------------------------------------------------- #
 class TestSolverRun:
-    def test_source_injects_field(self, free_space_solver):
-        """Ez at source location must become non-zero after running."""
+    def test_source_injects_into_ez(self, free_space_solver):
+        """After a few steps, Ez at the source location must be non-zero."""
         s = free_space_solver
-        s.step(0)
-        s.step(1)
-        s.step(2)
+        for n in range(5):
+            s.step(n)
         ix, iy = s.sources[0].ix, s.sources[0].iy
-        # After a few steps the field at the source should be non-zero
         assert abs(s.Ez[ix, iy]) > 0
 
-    def test_snapshots_recorded(self, free_space_solver):
-        """Snapshots should be recorded at the correct interval."""
+    def test_snapshot_count(self, free_space_solver):
         s = free_space_solver
         s.run(verbose=False)
         expected = s.config.nt // s.record_every
@@ -144,36 +149,80 @@ class TestSolverRun:
     def test_snapshot_shape(self, free_space_solver):
         s = free_space_solver
         s.run(verbose=False)
-        nx, ny = s.config.nx, s.config.ny
         for snap in s.snapshots:
-            assert snap.shape == (nx, ny)
+            assert snap.shape == (s.config.nx, s.config.ny)
 
-    def test_energy_increase_with_source(self, small_grid):
-        """Total field energy should grow while source is active."""
-        src = PointSource(ix=30, iy=30, frequency=5e9)
+    def test_snapshot_is_total_ez(self, small_grid):
+        """
+        A snapshot recorded at step N must equal Ezx + Ezy at that exact
+        step — not after further stepping. We verify by running one step
+        past a recording boundary and checking the stored snapshot matches
+        the Ez state captured immediately after that step.
+        """
+        src = PointSource(ix=30, iy=30, frequency=3e9)
+        s = FDTDSolver(small_grid, sources=[src], record_every=10)
+
+        # Step to exactly the first snapshot boundary
+        for n in range(10):
+            s.step(n)
+
+        # The snapshot at index 0 was taken at step 0 (n=0, before source ramp)
+        # Step 10 triggers the second snapshot — capture Ez right after
+        ez_at_snap = s.Ez.copy()
+        assert len(s.snapshots) == 1  # only step-0 snapshot so far
+
+        s.step(10)  # this triggers snapshot index 1
+        assert len(s.snapshots) == 2
+        # snapshot[1] must equal the current Ez since no further steps
+        # have been taken after the recording boundary
+        np.testing.assert_array_almost_equal(s.snapshots[1], s.Ez, decimal=10)
+
+    def test_energy_grows_with_cw_source(self, small_grid):
+        """Total field energy should grow while a CW source is active."""
+        src = PointSource(ix=30, iy=30, frequency=3e9)
         s = FDTDSolver(small_grid, sources=[src], record_every=10)
         s.run(verbose=False)
-        energy_start = np.sum(s.snapshots[0]**2)
-        energy_end   = np.sum(s.snapshots[-1]**2)
-        # Energy should grow (source is continuously injecting)
-        assert energy_end > energy_start
+        e_start = np.sum(s.snapshots[0]  ** 2)
+        e_end   = np.sum(s.snapshots[-1] ** 2)
+        assert e_end > e_start
 
-    def test_pml_absorbs_outgoing_waves(self):
+    def test_pml_absorbs_gaussian_pulse(self):
         """
-        After source is shut off (Gaussian pulse), energy should decay
-        as PML absorbs outgoing waves.
+        After a Gaussian pulse fully propagates out, PML should leave
+        only residual energy. Uses a wide pulse and enough steps for the
+        wavefront to reach and be absorbed by the boundaries.
+
+        Grid: 100x100 mm, 1 mm cells
+        Pulse center: t0 = 200 steps (~0.42 ns)
+        Pulse width:  spread = 40 steps (~85 ps) — wide enough to be
+                      well-resolved but narrow enough to fully exit by
+                      step 600 (the last 100 steps should be near-zero).
         """
-        cfg = GridConfig(nx=80, ny=80, dx=1e-3, dy=1e-3, nt=400, pml_layers=15)
-        # Gaussian pulse: most energy emitted in first ~200 steps
+        cfg = GridConfig(nx=100, ny=100, dx=1e-3, dy=1e-3,
+                         nt=700, pml_layers=20)
         src = GaussianPulseSource(
-            ix=40, iy=40,
-            t0=50 * cfg.dt,
-            spread=15 * cfg.dt,
+            ix=50, iy=50,
+            t0=200 * cfg.dt,    # pulse peaks at step 200
+            spread=40 * cfg.dt, # wide pulse, well-resolved
         )
         s = FDTDSolver(cfg, sources=[src], record_every=10)
         s.run(verbose=False)
-        # Energy in second half should be lower than in first half
-        mid = len(s.snapshots) // 2
-        e_early = np.sum(s.snapshots[mid // 2]**2)
-        e_late  = np.sum(s.snapshots[-1]**2)
-        assert e_late < e_early, "PML should absorb outgoing wave energy"
+
+        # Energy near the pulse peak (around step 200-300, snapshots 20-30)
+        e_peak = np.sum(s.snapshots[25] ** 2)
+
+        # Energy well after the pulse has left the grid (last snapshot)
+        e_late = np.sum(s.snapshots[-1] ** 2)
+
+        assert e_late < e_peak, (
+            f"PML should absorb the outgoing pulse. "
+            f"e_peak={e_peak:.6f}, e_late={e_late:.6f}"
+        )
+
+    def test_no_instability(self, small_grid):
+        """Fields must remain bounded — no exponential blowup."""
+        src = PointSource(ix=30, iy=30, frequency=3e9)
+        s = FDTDSolver(small_grid, sources=[src], record_every=10)
+        s.run(verbose=False)
+        assert np.isfinite(s.Ez).all()
+        assert np.max(np.abs(s.Ez)) < 1e6
