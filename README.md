@@ -53,7 +53,7 @@ from visualize import plot_field
 # Define the grid: 200x200 mm, 1 mm cells, 600 time steps
 cfg = GridConfig(nx=200, ny=200, dx=1e-3, dy=1e-3, nt=800, pml_layers=25)
 
-# 5 GHz point source at grid center
+# 3 GHz point source at grid center
 src = PointSource(ix=100, iy=100, frequency=3e9)
 
 # Run
@@ -72,7 +72,7 @@ plot_field(solver)
 
 | Script | Description |
 |--------|-------------|
-| `examples/example_01_point_source.py` | Circular wavefront from a 5 GHz CW source in free space |
+| `examples/example_01_point_source.py` | Circular wavefront from a 3 GHz CW source in free space |
 | `examples/example_02_dielectric_scattering.py` | Plane wave scattering off a dielectric cylinder (ε_r = 4) |
 | `examples/example_03_waveguide.py` | Guided mode propagation in a parallel-plate waveguide with PEC walls |
 
