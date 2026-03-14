@@ -29,34 +29,34 @@ from visualize import plot_field, plot_intensity
 #  Grid
 # --------------------------------------------------------------------------- #
 cfg = GridConfig(
-    nx=250, ny=120,
+    nx=60, ny=250,      # guide runs along y (long axis), walls along x (short axis)
     dx=0.5e-3, dy=0.5e-3,
-    nt=1000,
+    nt=1200,
     pml_layers=15,
 )
 
 # --------------------------------------------------------------------------- #
-#  PEC walls: top and bottom rows set to very high conductivity
+#  PEC walls: left and right columns (x=0 and x=nx) set to high conductivity
 # --------------------------------------------------------------------------- #
 WALL = 5  # wall thickness in cells
 
 mat = MaterialMap(cfg.nx, cfg.ny)
-mat.add_rectangle(0, 0,           cfg.nx, WALL,         sigma=1e7)
-mat.add_rectangle(0, cfg.ny-WALL, cfg.nx, cfg.ny,       sigma=1e7)
+mat.add_rectangle(0,           0, WALL,         cfg.ny, sigma=1e7)
+mat.add_rectangle(cfg.nx-WALL, 0, cfg.nx,       cfg.ny, sigma=1e7)
 
 # --------------------------------------------------------------------------- #
-#  Source: point source near the left end, centered vertically in the guide
+#  Source: point source near the bottom (y=pml+10), centered in x
 # --------------------------------------------------------------------------- #
 f0 = 8e9
 src = PointSource(
-    ix=cfg.pml_layers + 10,
-    iy=cfg.ny // 2,
+    ix=cfg.nx // 2,
+    iy=cfg.pml_layers + 10,
     frequency=f0,
     amplitude=1.0,
 )
 
-# Compute TE10 cutoff for this guide
-a_m  = (cfg.ny - 2 * WALL) * cfg.dy
+# Compute TE10 cutoff: guide width = nx minus wall cells, along x
+a_m  = (cfg.nx - 2 * WALL) * cfg.dx
 fc10 = 3e8 / (2 * a_m)
 
 print("=" * 55)
